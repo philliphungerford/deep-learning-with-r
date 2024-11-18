@@ -1,0 +1,49 @@
+---
+title: "setup"
+author: "Phillip Hungerford"
+date: "Monday 18th November 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+options(repos = c(CRAN = 'https://cran.rstudio.com'))
+#install.packages('knitr')
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+
+Keras is an API that runs tensorflow, JAX and pytorch as backends. 
+
+To quickly get up and running, it is recommended to use the included Dockerfile, this sets up all dependencies for keras and gets it working 'out of the box'. 
+
+For installation without using the Dockerfile refer to the [Keras3](https://keras3.posit.co/articles/getting_started.html#installation).
+
+# Test
+
+Run the small test model below to see if your keras has been setup correctly. 
+
+```{r}
+
+library(keras3)
+
+# Generate dummy data
+x <- matrix(runif(1000), nrow = 100, ncol = 10)
+y <- sample(0:1, 100, replace = TRUE)
+
+# Define a model
+model <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = 'relu', input_shape = c(10)) %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+
+# Compile the model
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'binary_crossentropy',
+  metrics = c('accuracy')
+)
+
+# Fit the model
+model %>% fit(x, y, epochs = 10, batch_size = 32)
+```
+
