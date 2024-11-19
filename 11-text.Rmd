@@ -1,0 +1,510 @@
+---
+title: "11 Deep Learning For Text"
+author: "Phillip Hungerford"
+date: "Mon 18th November 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(keras3)
+reticulate::use_condaenv("r-reticulate", required = TRUE)
+
+```
+
+Natural Language Processing (NLP) models:
+
+| Model Type | Question You Are Trying To Answer |
+|------------------------------------|------------------------------------|
+| Text Classification | What is the topic of this text? |
+| Content Filtering | Does this text contain abuse? |
+| Sentiment Analysis | Does this text sound positive or negative? |
+| Language Modeling | What should be the next word in this incomplete sentence? |
+| Translation | How would you say this in German? |
+| Summarisation | How would you summarise this article in one paragraph? |
+
+Evolution of text models went from logistic regression and decision trees -\> recurrent neural networks (lstm) -\> transformer models.
+
+## 11.2 Preparing Text Data
+
+Deep learning models only process numeric tensors, therefore text needs to be prepared in such a way that the DL models can interpret, this is achieved via **vectorising**.
+
+Steps to preprocess text data:
+
+1.  Standardise text (e.g. convert all to lowercase)
+
+2.  Split / tokenize (e.g. split into units, word level OR N-gram)
+
+3.  Vocabulary index (e.g. convert tokens into numeric indices based on vocabulary )
+
+For a sentence like *"I love deep learning"*, the steps are:
+
+-   **Standardization:** Convert to lowercase, remove punctuation, etc. → *"i love deep learning"*
+
+-   **Tokenization:** Split into tokens → `["i", "love", "deep", "learning"]`
+
+-   **Vocabulary Indexing:** Map each token to its corresponding index:
+
+    -   Vocabulary: `{"i": 0, "love": 1, "deep": 2, "learning": 3}`
+
+    -   Indexed sequence: `[0, 1, 2, 3]`
+
+```{r}
+
+# Input sentence
+text <- "I love deep learning"
+
+# Step 1: Standardization (convert to lowercase)
+standardized_text <- tolower(text)
+
+# Step 2: Tokenization (split into words)
+tokens <- unlist(strsplit(standardized_text, " "))  # c("i", "love", "deep", "learning")
+
+# Step 3: Vocabulary creation
+# Create a named vector where each unique word gets a unique index
+vocabulary <- setNames(seq_along(unique(tokens)), unique(tokens))
+# Vocabulary: c("i" = 1, "love" = 2, "deep" = 3, "learning" = 4)
+
+# Step 4: Vocabulary Indexing
+indexed_text <- unname(vocabulary[tokens])
+# Indexed text: c(1, 2, 3, 4)
+
+# Print the results
+cat("Standardized Text:", standardized_text, "\n")
+cat("Tokens:", tokens, "\n")
+cat("Vocabulary:\n")
+print(vocabulary)
+cat("Indexed Text:", indexed_text, "\n")
+
+```
+
+### 11.2.1 Text Standardisation
+
+Standardise text to erase encoding differences that you don't want in your model (e.g. convert to lowercase and remove punctuation).
+
+### 11.2.2 Text Splitting
+
+-   Word-level
+-   N-gram
+-   Character-level
+
+### 11.2.3 Vocabulary Indexing
+
+Encode each token to numerical representation.
+
+```{r}
+
+# vocabulary <- character()
+# 
+# for (string in text_dataset){
+#   
+#   tokens <- string %>% 
+#     standardize() %>% 
+#     tokenize()
+#   
+#   vocabulary <- unique(c(vocabulary, tokens))
+#   
+# }
+```
+
+### 11.2.4 Using layer_text_vectorisation
+
+```{r}
+
+new_vectorizer <- function (){
+  
+  #---
+  
+  self <- new.env (parent = emptyenv ()) 
+  attr(self, "class") <- "Vectorizer"
+	self$vocabulary <- c(" [UNK] ")
+
+	#---
+	
+	# 1 - standardize 
+	
+	self$standardize <- function(text){
+		text <- tolower(text)
+		gsub("[[:punct:]]", "", text)
+	}
+	
+	#---
+	
+	# 2 - tokenize 
+	
+	self$tokenize <- function(text){
+	  unlist(strsplit(text, "[[:space:]]+"))
+	}
+	
+	#---
+	
+	# 3 - make vocab 
+	
+	self$make_vocabulary <- function(text_dataset){
+	  
+	  tokens <- text_dataset %>% 
+	    self$standardize() %>%
+	    self$tokenize()
+	  
+	  self$vocabulary <- unique(c(self$vocabulary, tokens))
+	}
+	
+	#---
+	
+	self$encode <- function(text){
+	  tokens <- text %>% 
+	    self$standardize()  %>% 
+	    self$tokenize()
+	  match(tokens, table = self$vocabulary, nomatch = 1)
+	}
+	
+	#---
+	
+	self$decode <- function(int_sequence){
+	  vocab_w_mask_token <- c("", self$vocabulary)
+	  vocab_w_mask_token[int_sequence + 1]
+	}
+	
+	self
+}
+```
+
+Example
+
+```{r}
+vectorizer <- new_vectorizer()
+
+# Haiku by poet Hokushi
+dataset <- c(
+  "I write, erase, rewrite",
+  "Erase again, and then",
+  "A poppy blooms.")
+
+vectorizer$make_vocabulary(dataset)
+
+test_sentence <- "I write, rewrite, and still rewrite again"
+encoded_sentence <- vectorizer$encode(test_sentence)
+print(encoded_sentence)
+```
+
+```{r}
+decoded_sentence <- vectorizer$decode(encoded_sentence)
+print(decoded_sentence)
+```
+
+Preferred Method using "layer_text_vectorization"
+
+```{r}
+
+# build the vocab
+keras3::adapt(text_vectorization, dataset)
+get_vocabulary(text_vectorization)
+
+```
+
+```{r}
+
+# returns sequence of words as integers, by default it will
+# standardise -> to lower
+# split -> split on whitespace
+
+text_vectorization <-
+  keras3::layer_text_vectorization(output_mode = "int")
+
+# using custom functions for standardising and splitting 
+# NOTE: custom functions need to work on tf.string types and not R char vectors
+
+library(tensorflow)
+
+custom_standardization_fn <- function(string_tensor){
+  # converts to lowercase & removes punc
+  string_tensor %>% 
+    tf$strings$lower() %>% 
+    tf$strings$regex_replace("[[:punct:]]", "")
+}
+
+custom_split_fn <- function(string_tensor){
+  # splits strings on whitespace
+  tf$strings$split(string_tensor)
+}
+
+# create the vectorization layer
+text_vectorization <- keras3::layer_text_vectorization(
+  # update text vectorisation with custom standardisation and splitting func
+  output_mode = "int",
+  standardize = custom_standardization_fn,
+  split = custom_split_fn
+)
+
+dataset <- c(
+  "I write, erase, rewrite",
+  "Erase again, and then",
+  "A poppy blooms.")
+
+# create the vocabulary
+text_vectorization %>% adapt(dataset)
+vocabulary <- text_vectorization %>% get_vocabulary()
+vocabulary
+```
+
+For demonstration, let's try to encode and then decode an example sentence:
+
+```{r}
+# Now, the layer can map strings to integers -- you can use an
+# embedding layer to map these integers to learned embeddings.
+test_sentence <- rbind("I write, rewrite, and still rewrite again")
+encoded_sentence <- text_vectorization(test_sentence)
+encoded_sentence
+```
+
+```{r}
+decoded_sentence <- paste(vocabulary[as.integer(encoded_sentence)+1], collapse = " ")
+decoded_sentence
+```
+
+## 11.3 Two approaches for representing groups of words: Sets & sequences
+
+### 11.3.1 Preparing the IMDB movie reviews data
+
+```{r}
+if (!dir.exists("datasets/aclImdb")) {
+  dir.create("datasets")
+  download.file(
+    "https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz",
+    "datasets/aclImdb_v1.tar.gz"
+  )
+  untar("datasets/aclImdb_v1.tar.gz", exdir = "datasets")
+  unlink("datasets/aclImdb/train/unsup", recursive = TRUE)
+}
+```
+
+```{r}
+
+# inspect
+fs::dir_tree("datasets/aclImdb", recurse=1, type="directory")
+
+# delete training subdirectory
+#fs::dir_delete("datasets/aclImdb/train/unsup/")
+```
+
+```{r}
+
+#writeLines(readLines("datasets/aclImdb/train/pos/4077_10.txt", warn=FALSE))
+writeLines(readLines("datasets/aclImdb/train/pos/4078_10.txt", warn=FALSE))
+```
+
+Create a validation dataset
+
+```{r}
+# prepare validation set at 20% of training
+library(fs)
+set.seed(1337) # set seed to ensure same validation set every time
+base_dir <- path("datasets/aclImdb/")
+
+
+for (category in c("neg", "pos")){
+
+  filepaths <- dir_ls(base_dir / "train" / category)
+  num_val_samples <- round(0.2 * length(filepaths))
+  val_files <- sample(filepaths, num_val_samples)
+
+  dir_create(base_dir / "val" / category)
+  file_move(val_files, base_dir / "val" / category)
+
+}
+```
+
+```{r}
+# Create 3 tf datasets for training
+library(keras3)
+library(tfdatasets)
+
+train_ds <- keras3::text_dataset_from_directory("datasets/aclImdb/train/")
+val_ds   <- keras3::text_dataset_from_directory("datasets/aclImdb/val/")
+test_ds  <- keras3::text_dataset_from_directory("datasets/aclImdb/test/")
+
+```
+
+Displaying shapes and dtypes of first batch
+
+```{r}
+c(inputs, targets) %<-% iter_next(as_iterator(train_ds))
+str(inputs)
+```
+
+```{r}
+str(targets)
+```
+
+```{r}
+inputs[1]
+```
+
+```{r}
+targets[1]
+```
+
+All set, lets try learning something from this data.
+
+### 11.3.2 Processing words as a set: The bag of words approach
+
+```{r}
+
+# limit the vocab to 20k words and encode the output tokens as multi-hot binary vectors
+text_vectorization <-
+  layer_text_vectorization(max_tokens = 20000, output_mode = "multi_hot")
+
+# prepare the dataset that yields only raw text input (no labels)
+text_only_train_ds <- train_ds %>%
+  dataset_map(function(x, y) x)
+
+# index the vocabulary
+adapt(text_vectorization, text_only_train_ds)
+
+```
+
+```{r}
+# prepare processed versions of our train/val/test dataset
+binary_1gram_train_ds <- train_ds %>%
+  dataset_map( ~ list(text_vectorization(.x), .y),
+                num_parallel_calls = 4)
+
+binary_1gram_val_ds <- val_ds %>%
+  dataset_map( ~ list(text_vectorization(.x), .y),
+                num_parallel_calls = 4)
+
+binary_1gram_test_ds <- test_ds %>%
+  dataset_map ( ~ list(text_vectorization(.x), .y),
+                num_parallel_calls = 4)
+```
+
+Inspect the output
+
+```{r}
+
+c(inputs, targets) %<-% iter_next(as_iterator(binary_1gram_train_ds))
+str(inputs)
+
+```
+
+```{r}
+str(targets)
+```
+
+```{r}
+# inputs are batches of 20k dimensional vectors of 1 and 0s 
+inputs[1,]
+```
+
+```{r}
+targets[1]
+```
+
+Write a reusable model-building function that we'll use in all of our experiments in this section. Let's build a binary classification model that takes a sequence of tokens (like words or features) as input and predicts one of two possible outcomes (0 or 1).
+
+1.  Input Layer:
+
+    -   First, we'll define the input layer. This layer will accept a sequence of tokens, which can be words in a sentence or any set of features. The length of the sequence will be determined by `max_tokens`, which is the maximum number of tokens we allow in our input.
+
+2.  Hidden Layer:
+
+    -   Next, we add a hidden layer. This is a dense layer with a number of neurons defined by `hidden_dim` (for example, 16 neurons). We’ll use a ReLU activation function, which helps the model learn complex relationships in the data by introducing non-linearity. This step enables the model to make better predictions by understanding patterns in the input data.
+
+3.  Dropout Layer:
+
+    -   To prevent overfitting (where the model memorizes the training data instead of generalizing), we’ll add a dropout layer. This layer randomly "drops" 50% of the neurons during training. This forces the model to learn more robust patterns instead of relying too much on any single feature.
+
+4.  Output Layer:
+
+    -   Finally, we'll add the output layer. This will be a dense layer with just one neuron because we’re doing binary classification (only two classes: 0 or 1). We’ll use a sigmoid activation function, which will output a value between 0 and 1. This value represents the probability that the input belongs to the positive class (1). If the output is closer to 1, it means the model predicts "positive"; if it’s closer to 0, it predicts "negative."
+
+5.  Compiling the Model:
+
+    -   Once we’ve defined the model architecture, we need to compile it. We’ll use the RMSprop optimizer, which helps the model adjust the learning rate during training for efficient learning. For the loss function, we’ll use binary cross-entropy, which is perfect for binary classification tasks. Finally, we’ll use accuracy as our evaluation metric to track how often the model gets the prediction right.
+
+```{r}
+get_model <- function(max_tokens=20000, hidden_dim=16){
+  inputs <- layer_input(shape=c(max_tokens))
+  outputs <- inputs %>% 
+    layer_dense(hidden_dim, activation = "relu") %>% 
+    layer_dropout(0.5) %>% 
+    layer_dense(1, activation = "sigmoid")
+  model <- keras_model(inputs, outputs)
+  model %>% compile(optimizer = "rmsprop",
+                    loss = "binary_crossentropy",
+                    metrics = "accuracy")
+  model
+}
+```
+
+Finally, let's train and test our model.
+
+```{r}
+model <- get_model()
+model
+```
+
+Define a callback for the training process of the model. The callback used here is the callback_model_checkpoint, which saves the model during training based on specific conditions.
+
+```{r}
+callbacks <- list(
+  callback_model_checkpoint("binary1_gram.keras", save_best_only = TRUE)
+)
+```
+
+Fit the model.
+
+> We call dataset_cache() on the datasets to cache them in memory. Allows pre-processing to be done once during the first epoch and we will reuse the pre-processed texts for the following epochs. Only works if the data is small enough to fit into memory.
+
+```{r}
+model %>% fit(
+  x = dataset_cache(binary_1gram_train_ds),
+  validation_data = dataset_cache(binary_1gram_val_ds),
+  epochs = 10,
+  callbacks = callbacks
+)
+```
+
+See how model performs with bi-grams ("the cat sat on the mat" -\> "the", "the cat", "cat", "cat sat", "sat", "sat on", "on", "on the", "the mat", "mat")
+
+```{r}
+text_vectorization <- 
+  layer_text_vectorization(ngrams=2,
+                           max_tokens=20000,
+                           output_mode = "multi_hot")
+
+adapt(text_vectorization, text_only_train_ds)
+
+dataset_vectorize <- function(dataset){
+  dataset %>% 
+    dataset_map(~list(text_vectorization(.x),.y),
+                num_parallel_calls = 4)
+}
+
+binary_2gram_train_ds <- train_ds %>% dataset_vectorize()
+binary_2gram_val_ds <- val_ds %>% dataset_vectorize()
+binary_2gram_test_ds <- test_ds %>% dataset_vectorize()
+
+model <- get_model()
+model
+
+callbacks <- list(callback_model_checkpoint("binary_2gram.keras", save_best_only = TRUE))
+
+model %>% fit(
+  x = dataset_cache(binary_2gram_train_ds),
+  validation_data = dataset_cache(binary_2gram_val_ds),
+  epochs = 10,
+  callbacks = callbacks
+)
+
+# model <- load_model_tf("binary_2gram.keras") # older keras
+
+model <- load_model("binary_2gram.keras")
+evaluate(model, binary_2gram_test_ds)["accuracy"] %>% 
+  sprintf("Test acc: %.3f\n", .) %>% cat()
+```
+
+### 11.3.3 Processing words as a sequence: The sequence model approach
+
+## 11.4 The Transformer Architecture
