@@ -6,4 +6,31 @@
 datasets/*
 venv/*
 
-.keras
+# Ignore model files
+*.h5
+*.hdf5
+*.keras
+
+# Ignore TensorBoard log directories
+logs/
+logs/*
+
+# Ignore SavedModel directories
+saved_model/
+saved_model/*
+
+# Ignore checkpoints
+checkpoint
+checkpoints/
+checkpoints/*
+
+# Ignore any Python cache or virtual environment files
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.env/
+*.venv/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
