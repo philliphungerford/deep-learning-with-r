@@ -4,3 +4,6 @@
 .Ruserdata
 
 datasets/*
+venv/*
+
+.keras
